@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'dart:io';
 import '../models/file_item.dart';
 import '../services/firestore_service.dart';
 import '../services/file_service.dart';
@@ -125,19 +124,18 @@ class _FileDetailScreenState extends State<FileDetailScreen> {
   void _openFile() async {
     if (widget.file.previewPath != null) {
       try {
-        File? file = await _fileService.getLocalFile(widget.file.previewPath!);
+        var file = await _fileService.getLocalFile(widget.file.previewPath!);
         if (file != null) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Archivo encontrado: ${file.path}'),
+              content: Text('Archivo guardado localmente'),
               backgroundColor: Colors.green,
             ),
           );
-          // Aquí podrías usar un paquete como open_file para abrir el archivo
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Archivo no encontrado en el almacenamiento local'),
+              content: Text('Solo metadata disponible en web'),
               backgroundColor: Colors.orange,
             ),
           );
@@ -150,6 +148,13 @@ class _FileDetailScreenState extends State<FileDetailScreen> {
           ),
         );
       }
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Archivo solo disponible como metadata'),
+          backgroundColor: Colors.blue,
+        ),
+      );
     }
   }
 

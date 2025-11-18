@@ -566,7 +566,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _uploadFile(File file, String fileName) async {
+  Future<void> _uploadFile(dynamic file, String fileName) async {
     // Mostrar diálogo para agregar etiquetas
     List<String> tags = await _showTagsDialog() ?? [];
     

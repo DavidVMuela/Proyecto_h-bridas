@@ -1,5 +1,5 @@
-import 'dart:io';
-import 'package:path_provider/path_provider.dart';
+import 'dart:io' if (dart.library.html) 'file_service_stub.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:path/path.dart' as path;
 import '../models/file_item.dart';
 import 'firestore_service.dart';
@@ -7,31 +7,28 @@ import 'firestore_service.dart';
 class FileService {
   final FirestoreService _firestoreService = FirestoreService();
 
-  // Guardar archivo localmente y registrar en Firestore
+  // Guardar archivo
   Future<String> saveFile({
-    required File file,
+    required dynamic file,
     required String fileName,
     required List<String> tags,
   }) async {
     try {
-      // Obtener directorio local de la app
-      Directory appDir = await getApplicationDocumentsDirectory();
-      String localPath = '${appDir.path}/files';
-      
-      // Crear carpeta si no existe
-      Directory(localPath).createSync(recursive: true);
-      
-      // Guardar archivo localmente
-      String timestamp = DateTime.now().millisecondsSinceEpoch.toString();
-      String extension = path.extension(fileName);
-      String uniqueFileName = '${timestamp}_$fileName';
-      String filePath = '$localPath/$uniqueFileName';
-      
-      await file.copy(filePath);
-      
       // Obtener tamaño del archivo
-      int fileSizeBytes = await file.length();
+      int fileSizeBytes = 0;
+      
+      if (!kIsWeb && file is File) {
+        fileSizeBytes = await file.length();
+      } else if (file.runtimeType.toString().contains('XFile')) {
+        // Para XFile de image_picker
+        fileSizeBytes = await (file as dynamic).length();
+      }
+      
       double fileSizeMB = fileSizeBytes / (1024 * 1024);
+      
+      // Obtener extensión
+      String extension = path.extension(fileName);
+      String timestamp = DateTime.now().millisecondsSinceEpoch.toString();
       
       // Crear FileItem
       FileItem fileItem = FileItem(
@@ -41,8 +38,8 @@ class FileService {
         size: double.parse(fileSizeMB.toStringAsFixed(2)),
         date: DateTime.now(),
         tags: tags,
-        previewPath: filePath,
-        isSynced: false,
+        previewPath: null, // No guardamos path en web
+        isSynced: true,
       );
       
       // Guardar en Firestore
@@ -54,8 +51,12 @@ class FileService {
     }
   }
 
-  // Obtener archivo local
-  Future<File?> getLocalFile(String filePath) async {
+  // Obtener archivo local (solo funciona en móvil/desktop)
+  Future<File?> getLocalFile(String? filePath) async {
+    if (kIsWeb || filePath == null) {
+      return null;
+    }
+    
     try {
       File file = File(filePath);
       if (await file.exists()) {
@@ -63,56 +64,35 @@ class FileService {
       }
       return null;
     } catch (e) {
-      throw 'Error al obtener archivo: $e';
+      return null;
     }
   }
 
   // Eliminar archivo local
-  Future<void> deleteLocalFile(String filePath) async {
+  Future<void> deleteLocalFile(String? filePath) async {
+    if (kIsWeb || filePath == null) {
+      return;
+    }
+    
     try {
       File file = File(filePath);
       if (await file.exists()) {
         await file.delete();
       }
     } catch (e) {
-      throw 'Error al eliminar archivo: $e';
+      // Ignorar errores
     }
   }
 
-  // Obtener tamaño total de archivos locales
+  // Obtener tamaño total de archivos
   Future<double> getTotalStorageUsed() async {
-    try {
-      Directory appDir = await getApplicationDocumentsDirectory();
-      String localPath = '${appDir.path}/files';
-      
-      Directory dir = Directory(localPath);
-      if (!await dir.exists()) return 0;
-      
-      int totalBytes = 0;
-      await for (FileSystemEntity entity in dir.list(recursive: true)) {
-        if (entity is File) {
-          totalBytes += await entity.length();
-        }
-      }
-      
-      return totalBytes / (1024 * 1024); // Convertir a MB
-    } catch (e) {
-      return 0;
-    }
+    return 0.0;
   }
 
-  // Limpiar archivos locales
+  // Limpiar almacenamiento local
   Future<void> clearLocalStorage() async {
-    try {
-      Directory appDir = await getApplicationDocumentsDirectory();
-      String localPath = '${appDir.path}/files';
-      
-      Directory dir = Directory(localPath);
-      if (await dir.exists()) {
-        await dir.delete(recursive: true);
-      }
-    } catch (e) {
-      throw 'Error al limpiar almacenamiento: $e';
+    if (kIsWeb) {
+      return;
     }
   }
 }
