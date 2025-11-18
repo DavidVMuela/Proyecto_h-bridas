@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/file_item.dart';
+import '../services/firestore_service.dart';
 import 'file_detail_screen.dart';
 
 class SearchScreen extends StatefulWidget {
@@ -9,24 +10,11 @@ class SearchScreen extends StatefulWidget {
 
 class _SearchScreenState extends State<SearchScreen> {
   final TextEditingController _searchController = TextEditingController();
-  final List<FileItem> _allFiles = FileItem.getSampleFiles();
+  final FirestoreService _firestoreService = FirestoreService();
   
   String _selectedType = 'Todos';
   String _selectedTag = 'Todas';
   String _searchQuery = '';
-
-  List<FileItem> get _filteredFiles {
-    return _allFiles.where((file) {
-      bool matchesSearch = file.name
-          .toLowerCase()
-          .contains(_searchQuery.toLowerCase());
-      bool matchesType =
-          _selectedType == 'Todos' || file.type == _selectedType;
-      bool matchesTag =
-          _selectedTag == 'Todas' || file.tags.contains(_selectedTag);
-      return matchesSearch && matchesType && matchesTag;
-    }).toList();
-  }
 
   @override
   void dispose() {
@@ -54,15 +42,52 @@ class _SearchScreenState extends State<SearchScreen> {
         children: [
           _buildSearchBar(),
           _buildQuickFilters(),
-          _buildResultsHeader(),
           Expanded(
-            child: _filteredFiles.isEmpty
-                ? _buildEmptyState()
-                : _buildResultsList(),
+            child: StreamBuilder<List<FileItem>>(
+              stream: _firestoreService.getFiles(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return Center(child: CircularProgressIndicator());
+                }
+
+                if (snapshot.hasError) {
+                  return Center(
+                    child: Text('Error: ${snapshot.error}'),
+                  );
+                }
+
+                List<FileItem> allFiles = snapshot.data ?? [];
+                List<FileItem> filteredFiles = _filterFiles(allFiles);
+
+                return Column(
+                  children: [
+                    _buildResultsHeader(filteredFiles.length),
+                    Expanded(
+                      child: filteredFiles.isEmpty
+                          ? _buildEmptyState()
+                          : _buildResultsList(filteredFiles),
+                    ),
+                  ],
+                );
+              },
+            ),
           ),
         ],
       ),
     );
+  }
+
+  List<FileItem> _filterFiles(List<FileItem> files) {
+    return files.where((file) {
+      bool matchesSearch = file.name
+          .toLowerCase()
+          .contains(_searchQuery.toLowerCase());
+      bool matchesType =
+          _selectedType == 'Todos' || file.type == _selectedType;
+      bool matchesTag =
+          _selectedTag == 'Todas' || file.tags.contains(_selectedTag);
+      return matchesSearch && matchesType && matchesTag;
+    }).toList();
   }
 
   Widget _buildSearchBar() {
@@ -168,7 +193,7 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
-  Widget _buildResultsHeader() {
+  Widget _buildResultsHeader(int count) {
     return Container(
       padding: EdgeInsets.all(16),
       child: Row(
@@ -189,7 +214,7 @@ class _SearchScreenState extends State<SearchScreen> {
               borderRadius: BorderRadius.circular(12),
             ),
             child: Text(
-              '${_filteredFiles.length}',
+              '$count',
               style: TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.bold,
@@ -201,12 +226,12 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
-  Widget _buildResultsList() {
+  Widget _buildResultsList(List<FileItem> files) {
     return ListView.builder(
       padding: EdgeInsets.symmetric(horizontal: 16),
-      itemCount: _filteredFiles.length,
+      itemCount: files.length,
       itemBuilder: (context, index) {
-        return _buildFileCard(_filteredFiles[index]);
+        return _buildFileCard(files[index]);
       },
     );
   }
@@ -417,60 +442,58 @@ class _SearchScreenState extends State<SearchScreen> {
     }).toList();
   }
 
-  void _showTagFilter() {
-    showModalBottomSheet(
-      context: context,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (context) {
-        return Container(
-          padding: EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Filtrar por Etiqueta',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              SizedBox(height: 20),
-              ..._buildTagOptions(),
-            ],
-          ),
-        );
-      },
-    );
-  }
+  void _showTagFilter() async {
+    try {
+      List<String> allTags = await _firestoreService.getAllTags();
+      allTags.insert(0, 'Todas');
 
-  List<Widget> _buildTagOptions() {
-    List<String> tags = [
-      'Todas',
-      'Trabajo',
-      'Personal',
-      'Facturas',
-      'Diseño',
-      'Legal',
-      '2025',
-      'Reportes'
-    ];
-    return tags.map((tag) {
-      return RadioListTile<String>(
-        title: Text(tag),
-        value: tag,
-        groupValue: _selectedTag,
-        activeColor: Colors.blue[700],
-        onChanged: (value) {
-          setState(() {
-            _selectedTag = value!;
-          });
-          Navigator.pop(context);
+      showModalBottomSheet(
+        context: context,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (context) {
+          return Container(
+            padding: EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Filtrar por Etiqueta',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                SizedBox(height: 20),
+                ...allTags.map((tag) {
+                  return RadioListTile<String>(
+                    title: Text(tag),
+                    value: tag,
+                    groupValue: _selectedTag,
+                    activeColor: Colors.blue[700],
+                    onChanged: (value) {
+                      setState(() {
+                        _selectedTag = value!;
+                      });
+                      Navigator.pop(context);
+                    },
+                  );
+                }).toList(),
+              ],
+            ),
+          );
         },
       );
-    }).toList();
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error al cargar etiquetas: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   void _showFilterDialog() {
@@ -491,11 +514,6 @@ class _SearchScreenState extends State<SearchScreen> {
               Text(
                 'Etiqueta: $_selectedTag',
                 style: TextStyle(fontWeight: FontWeight.w600),
-              ),
-              SizedBox(height: 16),
-              Text(
-                'Resultados: ${_filteredFiles.length} archivos',
-                style: TextStyle(color: Colors.grey[600]),
               ),
             ],
           ),

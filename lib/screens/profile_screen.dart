@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../services/auth_service.dart';
+import '../services/firestore_service.dart';
 import 'login_screen.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -7,12 +9,54 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
+  final AuthService _authService = AuthService();
+  final FirestoreService _firestoreService = FirestoreService();
+  
   bool _notificationsEnabled = true;
   bool _autoSync = true;
-  String _storageProvider = 'Google Drive';
+  String _storageProvider = 'Local';
+  
+  Map<String, dynamic>? _userData;
+  Map<String, dynamic>? _stats;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserData();
+  }
+
+  Future<void> _loadUserData() async {
+    try {
+      final userData = await _authService.getUserData();
+      final stats = await _firestoreService.getUserStats();
+      
+      setState(() {
+        _userData = userData;
+        _stats = stats;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _isLoading = false;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error al cargar datos: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
@@ -34,24 +78,31 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        child: Column(
-          children: [
-            _buildHeader(),
-            SizedBox(height: 20),
-            _buildStatsCards(),
-            SizedBox(height: 20),
-            _buildSettingsSection(),
-            SizedBox(height: 20),
-            _buildAccountSection(),
-            SizedBox(height: 20),
-          ],
+      body: RefreshIndicator(
+        onRefresh: _loadUserData,
+        child: SingleChildScrollView(
+          physics: AlwaysScrollableScrollPhysics(),
+          child: Column(
+            children: [
+              _buildHeader(),
+              SizedBox(height: 20),
+              _buildStatsCards(),
+              SizedBox(height: 20),
+              _buildSettingsSection(),
+              SizedBox(height: 20),
+              _buildAccountSection(),
+              SizedBox(height: 20),
+            ],
+          ),
         ),
       ),
     );
   }
 
   Widget _buildHeader() {
+    String userName = _userData?['name'] ?? 'Usuario';
+    String userEmail = _authService.currentUser?.email ?? 'email@ejemplo.com';
+    
     return Container(
       width: double.infinity,
       padding: EdgeInsets.all(24),
@@ -68,16 +119,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
             child: CircleAvatar(
               radius: 47,
               backgroundColor: Colors.blue[100],
-              child: Icon(
-                Icons.person,
-                size: 50,
-                color: Colors.blue[700],
+              child: Text(
+                userName.isNotEmpty ? userName[0].toUpperCase() : 'U',
+                style: TextStyle(
+                  fontSize: 40,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.blue[700],
+                ),
               ),
             ),
           ),
           SizedBox(height: 16),
           Text(
-            'David Villagómez',
+            userName,
             style: TextStyle(
               fontSize: 24,
               fontWeight: FontWeight.bold,
@@ -86,7 +140,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
           SizedBox(height: 4),
           Text(
-            'david.villagomez@email.com',
+            userEmail,
             style: TextStyle(
               fontSize: 14,
               color: Colors.white70,
@@ -105,7 +159,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 Icon(Icons.workspace_premium, color: Colors.amber, size: 20),
                 SizedBox(width: 8),
                 Text(
-                  'Plan Gratuito',
+                  _userData?['plan']?.toUpperCase() ?? 'GRATIS',
                   style: TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.w600,
@@ -120,6 +174,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildStatsCards() {
+    int totalFiles = _stats?['totalFiles'] ?? 0;
+    int totalTags = _stats?['totalTags'] ?? 0;
+    double storageUsed = (_stats?['storageUsed'] ?? 0) / (1024 * 1024);
+    
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: 16),
       child: Row(
@@ -127,7 +185,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           Expanded(
             child: _buildStatCard(
               Icons.folder,
-              '25',
+              '$totalFiles',
               'Archivos',
               Colors.blue,
             ),
@@ -136,7 +194,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           Expanded(
             child: _buildStatCard(
               Icons.storage,
-              '15.2 MB',
+              '${storageUsed.toStringAsFixed(1)} MB',
               'Usado',
               Colors.green,
             ),
@@ -145,7 +203,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           Expanded(
             child: _buildStatCard(
               Icons.label,
-              '12',
+              '$totalTags',
               'Etiquetas',
               Colors.orange,
             ),
@@ -250,10 +308,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
           Divider(height: 1),
           ListTile(
             leading: Icon(Icons.cloud, color: Colors.blue[700]),
-            title: Text('Proveedor de almacenamiento'),
+            title: Text('Almacenamiento'),
             subtitle: Text(_storageProvider),
             trailing: Icon(Icons.chevron_right),
-            onTap: _showStorageProviderDialog,
+            onTap: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Almacenamiento local activo'),
+                  backgroundColor: Colors.blue[700],
+                ),
+              );
+            },
           ),
           Divider(height: 1),
           ListTile(
@@ -265,21 +330,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text('Cambiar idioma - En desarrollo'),
-                  backgroundColor: Colors.blue[700],
-                ),
-              );
-            },
-          ),
-          Divider(height: 1),
-          ListTile(
-            leading: Icon(Icons.dark_mode, color: Colors.blue[700]),
-            title: Text('Tema'),
-            subtitle: Text('Claro'),
-            trailing: Icon(Icons.chevron_right),
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Cambiar tema - En desarrollo'),
                   backgroundColor: Colors.blue[700],
                 ),
               );
@@ -327,38 +377,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
           Divider(height: 1),
           ListTile(
-            leading: Icon(Icons.security, color: Colors.blue[700]),
-            title: Text('Privacidad y seguridad'),
-            trailing: Icon(Icons.chevron_right),
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Privacidad - En desarrollo'),
-                  backgroundColor: Colors.blue[700],
-                ),
-              );
-            },
-          ),
-          Divider(height: 1),
-          ListTile(
             leading: Icon(Icons.storage, color: Colors.blue[700]),
             title: Text('Gestionar almacenamiento'),
             trailing: Icon(Icons.chevron_right),
             onTap: _showStorageDialog,
-          ),
-          Divider(height: 1),
-          ListTile(
-            leading: Icon(Icons.help, color: Colors.blue[700]),
-            title: Text('Ayuda y soporte'),
-            trailing: Icon(Icons.chevron_right),
-            onTap: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Ayuda - En desarrollo'),
-                  backgroundColor: Colors.blue[700],
-                ),
-              );
-            },
           ),
           Divider(height: 1),
           ListTile(
@@ -378,64 +400,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
         ],
       ),
-    );
-  }
-
-  void _showStorageProviderDialog() {
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Text('Proveedor de almacenamiento'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              RadioListTile<String>(
-                title: Text('Google Drive'),
-                value: 'Google Drive',
-                groupValue: _storageProvider,
-                activeColor: Colors.blue[700],
-                onChanged: (value) {
-                  setState(() {
-                    _storageProvider = value!;
-                  });
-                  Navigator.pop(context);
-                },
-              ),
-              RadioListTile<String>(
-                title: Text('Dropbox'),
-                value: 'Dropbox',
-                groupValue: _storageProvider,
-                activeColor: Colors.blue[700],
-                onChanged: (value) {
-                  setState(() {
-                    _storageProvider = value!;
-                  });
-                  Navigator.pop(context);
-                },
-              ),
-              RadioListTile<String>(
-                title: Text('Local'),
-                value: 'Local',
-                groupValue: _storageProvider,
-                activeColor: Colors.blue[700],
-                onChanged: (value) {
-                  setState(() {
-                    _storageProvider = value!;
-                  });
-                  Navigator.pop(context);
-                },
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text('Cerrar'),
-            ),
-          ],
-        );
-      },
     );
   }
 
@@ -497,14 +461,38 @@ class _ProfileScreenState extends State<ProfileScreen> {
               child: Text('Cancelar'),
             ),
             ElevatedButton(
-              onPressed: () {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Contraseña actualizada'),
-                    backgroundColor: Colors.green,
-                  ),
-                );
+              onPressed: () async {
+                if (newPasswordController.text != confirmPasswordController.text) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Las contraseñas no coinciden'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                  return;
+                }
+
+                try {
+                  await _authService.changePassword(
+                    currentPassword: currentPasswordController.text,
+                    newPassword: newPasswordController.text,
+                  );
+                  
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Contraseña actualizada'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Error: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.blue[700],
@@ -518,6 +506,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   void _showStorageDialog() {
+    double storageUsed = (_stats?['storageUsed'] ?? 0) / (1024 * 1024);
+    double storageLimit = (_stats?['storageLimit'] ?? 104857600) / (1024 * 1024);
+    double percentage = storageUsed / storageLimit;
+
     showDialog(
       context: context,
       builder: (context) {
@@ -545,41 +537,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text('Archivos:'),
-                  Text('15.2 MB', style: TextStyle(fontWeight: FontWeight.w600)),
+                  Text('${storageUsed.toStringAsFixed(2)} MB', 
+                    style: TextStyle(fontWeight: FontWeight.w600)),
                 ],
               ),
               SizedBox(height: 8),
               LinearProgressIndicator(
-                value: 0.152,
+                value: percentage,
                 backgroundColor: Colors.grey[200],
                 color: Colors.blue[700],
                 minHeight: 8,
               ),
               SizedBox(height: 16),
               Text(
-                '15.2 MB de 100 MB utilizados',
+                '${storageUsed.toStringAsFixed(2)} MB de ${storageLimit.toStringAsFixed(0)} MB utilizados',
                 style: TextStyle(fontSize: 12, color: Colors.grey[600]),
               ),
               SizedBox(height: 8),
               Text(
-                'Espacio disponible: 84.8 MB',
+                'Espacio disponible: ${(storageLimit - storageUsed).toStringAsFixed(2)} MB',
                 style: TextStyle(fontSize: 12, color: Colors.grey[600]),
               ),
             ],
           ),
           actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Función en desarrollo'),
-                    backgroundColor: Colors.orange,
-                  ),
-                );
-              },
-              child: Text('Liberar espacio'),
-            ),
             ElevatedButton(
               onPressed: () => Navigator.pop(context),
               style: ElevatedButton.styleFrom(
@@ -672,11 +653,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
               child: Text('Cancelar'),
             ),
             ElevatedButton(
-              onPressed: () {
-                Navigator.of(context).pushAndRemoveUntil(
-                  MaterialPageRoute(builder: (context) => LoginScreen()),
-                  (route) => false,
-                );
+              onPressed: () async {
+                try {
+                  await _authService.signOut();
+                  Navigator.of(context).pushAndRemoveUntil(
+                    MaterialPageRoute(builder: (context) => LoginScreen()),
+                    (route) => false,
+                  );
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Error al cerrar sesión: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.red,

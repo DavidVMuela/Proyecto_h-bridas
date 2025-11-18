@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'dart:io';
 import '../models/file_item.dart';
+import '../services/firestore_service.dart';
+import '../services/file_service.dart';
 
 class FileDetailScreen extends StatefulWidget {
   final FileItem file;
@@ -11,12 +14,17 @@ class FileDetailScreen extends StatefulWidget {
 }
 
 class _FileDetailScreenState extends State<FileDetailScreen> {
+  final FirestoreService _firestoreService = FirestoreService();
+  final FileService _fileService = FileService();
+  
   late List<String> _tags;
+  late bool _isSynced;
 
   @override
   void initState() {
     super.initState();
     _tags = List.from(widget.file.tags);
+    _isSynced = widget.file.isSynced;
   }
 
   @override
@@ -97,14 +105,7 @@ class _FileDetailScreenState extends State<FileDetailScreen> {
             ),
             SizedBox(height: 8),
             ElevatedButton.icon(
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Abrir archivo - En desarrollo'),
-                    backgroundColor: Colors.blue[700],
-                  ),
-                );
-              },
+              onPressed: _openFile,
               icon: Icon(Icons.open_in_new),
               label: Text('Abrir'),
               style: ElevatedButton.styleFrom(
@@ -119,6 +120,37 @@ class _FileDetailScreenState extends State<FileDetailScreen> {
         ),
       ),
     );
+  }
+
+  void _openFile() async {
+    if (widget.file.previewPath != null) {
+      try {
+        File? file = await _fileService.getLocalFile(widget.file.previewPath!);
+        if (file != null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Archivo encontrado: ${file.path}'),
+              backgroundColor: Colors.green,
+            ),
+          );
+          // Aquí podrías usar un paquete como open_file para abrir el archivo
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Archivo no encontrado en el almacenamiento local'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al abrir archivo: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   IconData _getFileIcon() {
@@ -190,14 +222,11 @@ class _FileDetailScreenState extends State<FileDetailScreen> {
           Divider(height: 24),
           _buildInfoRow(Icons.text_fields, 'Nombre', widget.file.name),
           SizedBox(height: 12),
-          _buildInfoRow(
-              Icons.storage, 'Tamaño', '${widget.file.size} MB'),
+          _buildInfoRow(Icons.storage, 'Tamaño', '${widget.file.size} MB'),
           SizedBox(height: 12),
-          _buildInfoRow(
-              Icons.calendar_today, 'Fecha', _formatDate(widget.file.date)),
+          _buildInfoRow(Icons.calendar_today, 'Fecha', _formatDate(widget.file.date)),
           SizedBox(height: 12),
-          _buildInfoRow(
-              Icons.insert_drive_file, 'Tipo', widget.file.type),
+          _buildInfoRow(Icons.insert_drive_file, 'Tipo', widget.file.type),
         ],
       ),
     );
@@ -234,18 +263,8 @@ class _FileDetailScreenState extends State<FileDetailScreen> {
 
   String _formatDate(DateTime date) {
     const months = [
-      'Ene',
-      'Feb',
-      'Mar',
-      'Abr',
-      'May',
-      'Jun',
-      'Jul',
-      'Ago',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dic'
+      'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
+      'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'
     ];
     return '${date.day.toString().padLeft(2, '0')} ${months[date.month - 1]} ${date.year}';
   }
@@ -296,11 +315,7 @@ class _FileDetailScreenState extends State<FileDetailScreen> {
                     ),
                     deleteIcon: Icon(Icons.close, size: 18),
                     deleteIconColor: Colors.blue[700],
-                    onDeleted: () {
-                      setState(() {
-                        _tags.remove(tag);
-                      });
-                    },
+                    onDeleted: () => _removeTag(tag),
                   )),
               ActionChip(
                 label: Row(
@@ -325,6 +340,32 @@ class _FileDetailScreenState extends State<FileDetailScreen> {
     );
   }
 
+  Future<void> _removeTag(String tag) async {
+    setState(() {
+      _tags.remove(tag);
+    });
+
+    try {
+      await _firestoreService.updateFileTags(widget.file.id, _tags);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Etiqueta eliminada'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    } catch (e) {
+      setState(() {
+        _tags.add(tag);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error al eliminar etiqueta: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
   Widget _buildSyncSection() {
     return Container(
       margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -343,8 +384,8 @@ class _FileDetailScreenState extends State<FileDetailScreen> {
       child: Row(
         children: [
           Icon(
-            widget.file.isSynced ? Icons.cloud_done : Icons.cloud_off,
-            color: widget.file.isSynced ? Colors.green : Colors.orange,
+            _isSynced ? Icons.cloud_done : Icons.cloud_off,
+            color: _isSynced ? Colors.green : Colors.orange,
             size: 28,
           ),
           SizedBox(width: 12),
@@ -353,17 +394,17 @@ class _FileDetailScreenState extends State<FileDetailScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  widget.file.isSynced ? 'Sincronizado' : 'Sin sincronizar',
+                  _isSynced ? 'Sincronizado' : 'Sin sincronizar',
                   style: TextStyle(
                     fontWeight: FontWeight.w600,
                     fontSize: 16,
-                    color: widget.file.isSynced ? Colors.green : Colors.orange,
+                    color: _isSynced ? Colors.green : Colors.orange,
                   ),
                 ),
                 SizedBox(height: 4),
                 Text(
-                  widget.file.isSynced
-                      ? 'Tu archivo está en la nube'
+                  _isSynced
+                      ? 'Tu archivo está guardado'
                       : 'Esperando sincronización',
                   style: TextStyle(
                     fontSize: 12,
@@ -373,19 +414,9 @@ class _FileDetailScreenState extends State<FileDetailScreen> {
               ],
             ),
           ),
-          if (!widget.file.isSynced)
+          if (!_isSynced)
             ElevatedButton(
-              onPressed: () {
-                setState(() {
-                  widget.file.isSynced = true;
-                });
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Archivo sincronizado'),
-                    backgroundColor: Colors.green,
-                  ),
-                );
-              },
+              onPressed: _syncFile,
               child: Text('Sincronizar'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.blue[700],
@@ -395,6 +426,28 @@ class _FileDetailScreenState extends State<FileDetailScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _syncFile() async {
+    try {
+      await _firestoreService.markAsSynced(widget.file.id);
+      setState(() {
+        _isSynced = true;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Archivo sincronizado'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error al sincronizar: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   Widget _buildActionsSection() {
@@ -508,19 +561,34 @@ class _FileDetailScreenState extends State<FileDetailScreen> {
               child: Text('Cancelar'),
             ),
             ElevatedButton(
-              onPressed: () {
-                if (controller.text.isNotEmpty &&
-                    !_tags.contains(controller.text)) {
-                  setState(() {
-                    _tags.add(controller.text);
-                  });
+              onPressed: () async {
+                if (controller.text.isNotEmpty && !_tags.contains(controller.text)) {
+                  String newTag = controller.text;
                   Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Etiqueta agregada'),
-                      backgroundColor: Colors.green,
-                    ),
-                  );
+                  
+                  setState(() {
+                    _tags.add(newTag);
+                  });
+
+                  try {
+                    await _firestoreService.updateFileTags(widget.file.id, _tags);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Etiqueta agregada'),
+                        backgroundColor: Colors.green,
+                      ),
+                    );
+                  } catch (e) {
+                    setState(() {
+                      _tags.remove(newTag);
+                    });
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Error al agregar etiqueta: $e'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
                 }
               },
               style: ElevatedButton.styleFrom(
@@ -535,8 +603,7 @@ class _FileDetailScreenState extends State<FileDetailScreen> {
   }
 
   void _showRenameDialog() {
-    TextEditingController controller =
-        TextEditingController(text: widget.file.name);
+    TextEditingController controller = TextEditingController(text: widget.file.name);
     showDialog(
       context: context,
       builder: (context) {
@@ -599,15 +666,9 @@ class _FileDetailScreenState extends State<FileDetailScreen> {
               child: Text('Cancelar'),
             ),
             ElevatedButton(
-              onPressed: () {
+              onPressed: () async {
                 Navigator.pop(context);
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Archivo eliminado'),
-                    backgroundColor: Colors.red,
-                  ),
-                );
+                await _deleteFile();
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.red,
@@ -618,6 +679,33 @@ class _FileDetailScreenState extends State<FileDetailScreen> {
         );
       },
     );
+  }
+
+  Future<void> _deleteFile() async {
+    try {
+      // Eliminar archivo local si existe
+      if (widget.file.previewPath != null) {
+        await _fileService.deleteLocalFile(widget.file.previewPath!);
+      }
+
+      // Eliminar de Firestore
+      await _firestoreService.deleteFile(widget.file.id, widget.file.size);
+
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Archivo eliminado'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error al eliminar archivo: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   void _showOptions() {

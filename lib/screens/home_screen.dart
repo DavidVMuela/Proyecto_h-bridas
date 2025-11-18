@@ -1,5 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:image_picker/image_picker.dart';
+import 'dart:io';
 import '../models/file_item.dart';
+import '../services/firestore_service.dart';
+import '../services/file_service.dart';
 import 'file_detail_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -8,23 +13,11 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  List<FileItem> _files = FileItem.getSampleFiles();
+  final FirestoreService _firestoreService = FirestoreService();
+  final FileService _fileService = FileService();
+  
   String _selectedCategory = 'Todos';
-
-  Map<String, int> get _categories {
-    Map<String, int> cats = {'Todos': _files.length};
-    for (var file in _files) {
-      for (var tag in file.tags) {
-        cats[tag] = (cats[tag] ?? 0) + 1;
-      }
-    }
-    return cats;
-  }
-
-  List<FileItem> get _filteredFiles {
-    if (_selectedCategory == 'Todos') return _files;
-    return _files.where((f) => f.tags.contains(_selectedCategory)).toList();
-  }
+  bool _isUploading = false;
 
   @override
   Widget build(BuildContext context) {
@@ -56,53 +49,104 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
       drawer: _buildDrawer(),
-      body: Column(
-        children: [
-          _buildCategoryList(),
-          Padding(
-            padding: EdgeInsets.all(16),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Archivos Recientes',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.grey[800],
+      body: StreamBuilder<List<FileItem>>(
+        stream: _firestoreService.getFiles(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return Center(child: CircularProgressIndicator());
+          }
+
+          if (snapshot.hasError) {
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.error_outline, size: 60, color: Colors.red),
+                  SizedBox(height: 16),
+                  Text('Error al cargar archivos'),
+                  SizedBox(height: 8),
+                  Text(
+                    snapshot.error.toString(),
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                    textAlign: TextAlign.center,
                   ),
+                ],
+              ),
+            );
+          }
+
+          List<FileItem> files = snapshot.data ?? [];
+          
+          return Column(
+            children: [
+              _buildCategoryList(files),
+              Padding(
+                padding: EdgeInsets.all(16),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Archivos Recientes',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey[800],
+                      ),
+                    ),
+                    Text(
+                      '${_getFilteredFiles(files).length} archivos',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Colors.grey[600],
+                      ),
+                    ),
+                  ],
                 ),
-                Text(
-                  '${_filteredFiles.length} archivos',
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: Colors.grey[600],
-                  ),
-                ),
-              ],
+              ),
+              Expanded(
+                child: _getFilteredFiles(files).isEmpty
+                    ? _buildEmptyState()
+                    : ListView.builder(
+                        padding: EdgeInsets.symmetric(horizontal: 16),
+                        itemCount: _getFilteredFiles(files).length,
+                        itemBuilder: (context, index) {
+                          return _buildFileCard(_getFilteredFiles(files)[index]);
+                        },
+                      ),
+              ),
+            ],
+          );
+        },
+      ),
+      floatingActionButton: _isUploading
+          ? FloatingActionButton(
+              onPressed: null,
+              backgroundColor: Colors.grey,
+              child: CircularProgressIndicator(color: Colors.white),
+            )
+          : FloatingActionButton.extended(
+              onPressed: _handleUpload,
+              icon: Icon(Icons.add),
+              label: Text('Subir'),
+              backgroundColor: Colors.blue[700],
+              foregroundColor: Colors.white,
             ),
-          ),
-          Expanded(
-            child: _filteredFiles.isEmpty
-                ? _buildEmptyState()
-                : ListView.builder(
-                    padding: EdgeInsets.symmetric(horizontal: 16),
-                    itemCount: _filteredFiles.length,
-                    itemBuilder: (context, index) {
-                      return _buildFileCard(_filteredFiles[index]);
-                    },
-                  ),
-          ),
-        ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _handleUpload,
-        icon: Icon(Icons.add),
-        label: Text('Subir'),
-        backgroundColor: Colors.blue[700],
-        foregroundColor: Colors.white,
-      ),
     );
+  }
+
+  List<FileItem> _getFilteredFiles(List<FileItem> files) {
+    if (_selectedCategory == 'Todos') return files;
+    return files.where((f) => f.tags.contains(_selectedCategory)).toList();
+  }
+
+  Map<String, int> _getCategories(List<FileItem> files) {
+    Map<String, int> cats = {'Todos': files.length};
+    for (var file in files) {
+      for (var tag in file.tags) {
+        cats[tag] = (cats[tag] ?? 0) + 1;
+      }
+    }
+    return cats;
   }
 
   Widget _buildDrawer() {
@@ -148,24 +192,6 @@ class _HomeScreenState extends State<HomeScreen> {
             },
           ),
           ListTile(
-            leading: Icon(Icons.cloud, color: Colors.blue[700]),
-            title: Text('Sincronización'),
-            trailing: Icon(Icons.chevron_right),
-            onTap: () {
-              Navigator.pop(context);
-              _showComingSoon('Sincronización');
-            },
-          ),
-          ListTile(
-            leading: Icon(Icons.label, color: Colors.blue[700]),
-            title: Text('Gestionar Etiquetas'),
-            trailing: Icon(Icons.chevron_right),
-            onTap: () {
-              Navigator.pop(context);
-              _showComingSoon('Gestión de Etiquetas');
-            },
-          ),
-          ListTile(
             leading: Icon(Icons.storage, color: Colors.blue[700]),
             title: Text('Almacenamiento'),
             trailing: Icon(Icons.chevron_right),
@@ -184,15 +210,6 @@ class _HomeScreenState extends State<HomeScreen> {
               _showComingSoon('Configuración');
             },
           ),
-          ListTile(
-            leading: Icon(Icons.help_outline, color: Colors.grey[700]),
-            title: Text('Ayuda'),
-            trailing: Icon(Icons.chevron_right),
-            onTap: () {
-              Navigator.pop(context);
-              _showComingSoon('Ayuda');
-            },
-          ),
           Spacer(),
           Padding(
             padding: EdgeInsets.all(16),
@@ -209,7 +226,9 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildCategoryList() {
+  Widget _buildCategoryList(List<FileItem> files) {
+    Map<String, int> categories = _getCategories(files);
+    
     return Container(
       height: 60,
       decoration: BoxDecoration(
@@ -225,7 +244,7 @@ class _HomeScreenState extends State<HomeScreen> {
       child: ListView(
         scrollDirection: Axis.horizontal,
         padding: EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        children: _categories.entries.map((entry) {
+        children: categories.entries.map((entry) {
           bool isSelected = entry.key == _selectedCategory;
           return Padding(
             padding: EdgeInsets.only(right: 8),
@@ -462,7 +481,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 subtitle: Text('Selecciona imágenes de tu galería'),
                 onTap: () {
                   Navigator.pop(context);
-                  _showUploadSuccess('Galería');
+                  _pickImageFromGallery();
                 },
               ),
               ListTile(
@@ -478,7 +497,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 subtitle: Text('Selecciona documentos del dispositivo'),
                 onTap: () {
                   Navigator.pop(context);
-                  _showUploadSuccess('Archivos');
+                  _pickFile();
                 },
               ),
               ListTile(
@@ -494,7 +513,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 subtitle: Text('Captura un documento con la cámara'),
                 onTap: () {
                   Navigator.pop(context);
-                  _showUploadSuccess('Cámara');
+                  _pickImageFromCamera();
                 },
               ),
               SizedBox(height: 10),
@@ -505,12 +524,141 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _showUploadSuccess(String source) {
+  Future<void> _pickImageFromGallery() async {
+    try {
+      final ImagePicker picker = ImagePicker();
+      final XFile? image = await picker.pickImage(source: ImageSource.gallery);
+      
+      if (image != null) {
+        await _uploadFile(File(image.path), image.name);
+      }
+    } catch (e) {
+      _showError('Error al seleccionar imagen: $e');
+    }
+  }
+
+  Future<void> _pickImageFromCamera() async {
+    try {
+      final ImagePicker picker = ImagePicker();
+      final XFile? image = await picker.pickImage(source: ImageSource.camera);
+      
+      if (image != null) {
+        await _uploadFile(File(image.path), image.name);
+      }
+    } catch (e) {
+      _showError('Error al tomar foto: $e');
+    }
+  }
+
+  Future<void> _pickFile() async {
+    try {
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['pdf', 'doc', 'docx', 'xlsx', 'xls', 'txt'],
+      );
+
+      if (result != null && result.files.single.path != null) {
+        File file = File(result.files.single.path!);
+        await _uploadFile(file, result.files.single.name);
+      }
+    } catch (e) {
+      _showError('Error al seleccionar archivo: $e');
+    }
+  }
+
+  Future<void> _uploadFile(File file, String fileName) async {
+    // Mostrar diálogo para agregar etiquetas
+    List<String> tags = await _showTagsDialog() ?? [];
+    
+    if (tags.isEmpty) {
+      tags = ['Sin etiqueta'];
+    }
+
+    setState(() {
+      _isUploading = true;
+    });
+
+    try {
+      await _fileService.saveFile(
+        file: file,
+        fileName: fileName,
+        tags: tags,
+      );
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Archivo subido exitosamente'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      _showError('Error al subir archivo: $e');
+    } finally {
+      setState(() {
+        _isUploading = false;
+      });
+    }
+  }
+
+  Future<List<String>?> _showTagsDialog() async {
+    List<String> selectedTags = [];
+    List<String> availableTags = ['Trabajo', 'Personal', 'Facturas', 'Diseño', 'Legal', 'Reportes'];
+    
+    return showDialog<List<String>>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: Text('Agregar Etiquetas'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ...availableTags.map((tag) {
+                      return CheckboxListTile(
+                        title: Text(tag),
+                        value: selectedTags.contains(tag),
+                        activeColor: Colors.blue[700],
+                        onChanged: (bool? value) {
+                          setDialogState(() {
+                            if (value == true) {
+                              selectedTags.add(tag);
+                            } else {
+                              selectedTags.remove(tag);
+                            }
+                          });
+                        },
+                      );
+                    }).toList(),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, null),
+                  child: Text('Cancelar'),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(context, selectedTags),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue[700],
+                  ),
+                  child: Text('Continuar', style: TextStyle(color: Colors.white)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _showError(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Funcionalidad de $source en desarrollo'),
-        backgroundColor: Colors.blue[700],
-        behavior: SnackBarBehavior.floating,
+        content: Text(message),
+        backgroundColor: Colors.red,
       ),
     );
   }
@@ -525,44 +673,53 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _showStorageInfo() {
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Row(
-            children: [
-              Icon(Icons.storage, color: Colors.blue[700]),
-              SizedBox(width: 10),
-              Text('Almacenamiento'),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Espacio usado: 15.2 MB'),
-              SizedBox(height: 8),
-              LinearProgressIndicator(
-                value: 0.152,
-                backgroundColor: Colors.grey[200],
-                color: Colors.blue[700],
-              ),
-              SizedBox(height: 8),
-              Text(
-                'Espacio disponible: 84.8 MB de 100 MB',
-                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text('Cerrar'),
+  void _showStorageInfo() async {
+    try {
+      Map<String, dynamic> stats = await _firestoreService.getUserStats();
+      double storageUsedMB = stats['storageUsed'] / (1024 * 1024);
+      double storageLimitMB = stats['storageLimit'] / (1024 * 1024);
+      double percentage = storageUsedMB / storageLimitMB;
+
+      showDialog(
+        context: context,
+        builder: (context) {
+          return AlertDialog(
+            title: Row(
+              children: [
+                Icon(Icons.storage, color: Colors.blue[700]),
+                SizedBox(width: 10),
+                Text('Almacenamiento'),
+              ],
             ),
-          ],
-        );
-      },
-    );
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Espacio usado: ${storageUsedMB.toStringAsFixed(2)} MB'),
+                SizedBox(height: 8),
+                LinearProgressIndicator(
+                  value: percentage,
+                  backgroundColor: Colors.grey[200],
+                  color: Colors.blue[700],
+                ),
+                SizedBox(height: 8),
+                Text(
+                  'Espacio disponible: ${(storageLimitMB - storageUsedMB).toStringAsFixed(2)} MB de ${storageLimitMB.toStringAsFixed(0)} MB',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text('Cerrar'),
+              ),
+            ],
+          );
+        },
+      );
+    } catch (e) {
+      _showError('Error al obtener información de almacenamiento');
+    }
   }
 }

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "1012024979698",
+    "project_id": "organizador-80a7d",
+    "storage_bucket": "organizador-80a7d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1012024979698:android:84028c2dac3af4a08ce06b",
+        "android_client_info": {
+          "package_name": "com.example.organizador"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBYhCS7YpXCAUAQYURcAlCUE8PaJaST4mE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
