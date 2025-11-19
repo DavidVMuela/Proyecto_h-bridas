@@ -672,7 +672,7 @@ class _FileDetailScreenState extends State<FileDetailScreen> {
             ),
             ElevatedButton(
               onPressed: () async {
-                Navigator.pop(context);
+                Navigator.pop(context); // Cerrar diálogo de confirmación
                 await _deleteFile();
               },
               style: ElevatedButton.styleFrom(
@@ -687,6 +687,27 @@ class _FileDetailScreenState extends State<FileDetailScreen> {
   }
 
   Future<void> _deleteFile() async {
+    // Mostrar indicador de carga
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => Center(
+        child: Card(
+          child: Padding(
+            padding: EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircularProgressIndicator(),
+                SizedBox(height: 16),
+                Text('Eliminando archivo...'),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
     try {
       // Eliminar archivo local si existe
       if (widget.file.previewPath != null) {
@@ -696,18 +717,44 @@ class _FileDetailScreenState extends State<FileDetailScreen> {
       // Eliminar de Firestore
       await _firestoreService.deleteFile(widget.file.id, widget.file.size);
 
+      // Cerrar el indicador de carga
       Navigator.pop(context);
+      
+      // Volver a la pantalla anterior
+      Navigator.pop(context);
+      
+      // Mostrar mensaje de éxito
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Archivo eliminado'),
-          backgroundColor: Colors.red,
+          content: Row(
+            children: [
+              Icon(Icons.check_circle, color: Colors.white),
+              SizedBox(width: 12),
+              Text('Archivo eliminado correctamente'),
+            ],
+          ),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: 2),
         ),
       );
     } catch (e) {
+      // Cerrar el indicador de carga
+      Navigator.pop(context);
+      
+      // Mostrar mensaje de error
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error al eliminar archivo: $e'),
+          content: Row(
+            children: [
+              Icon(Icons.error, color: Colors.white),
+              SizedBox(width: 12),
+              Expanded(child: Text('Error al eliminar: $e')),
+            ],
+          ),
           backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: 3),
         ),
       );
     }

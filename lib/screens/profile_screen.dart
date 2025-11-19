@@ -51,12 +51,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
-    }
-
     return Scaffold(
       backgroundColor: Colors.grey[50],
       appBar: AppBar(
@@ -67,14 +61,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         actions: [
           IconButton(
             icon: Icon(Icons.edit),
-            onPressed: () {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Editar perfil - En desarrollo'),
-                  backgroundColor: Colors.blue[700],
-                ),
-              );
-            },
+            onPressed: _showEditProfileDialog,
           ),
         ],
       ),
@@ -86,7 +73,38 @@ class _ProfileScreenState extends State<ProfileScreen> {
             children: [
               _buildHeader(),
               SizedBox(height: 20),
-              _buildStatsCards(),
+              // Usar StreamBuilder para actualizar estadísticas en tiempo real
+              StreamBuilder<List<dynamic>>(
+                stream: _firestoreService.getFiles(),
+                builder: (context, snapshot) {
+                  if (_isLoading && !snapshot.hasData) {
+                    return Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(20),
+                        child: CircularProgressIndicator(),
+                      ),
+                    );
+                  }
+                  
+                  // Calcular estadísticas en tiempo real
+                  int totalFiles = snapshot.data?.length ?? 0;
+                  Set<String> uniqueTags = {};
+                  double storageUsedBytes = 0;
+                  
+                  if (snapshot.hasData) {
+                    for (var file in snapshot.data!) {
+                      uniqueTags.addAll(file.tags);
+                      storageUsedBytes += file.size * 1024 * 1024; // Convertir MB a bytes
+                    }
+                  }
+                  
+                  return _buildStatsCardsWithData(
+                    totalFiles,
+                    uniqueTags.length,
+                    storageUsedBytes / (1024 * 1024), // Convertir a MB
+                  );
+                },
+              ),
               SizedBox(height: 20),
               _buildSettingsSection(),
               SizedBox(height: 20),
@@ -173,11 +191,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _buildStatsCards() {
-    int totalFiles = _stats?['totalFiles'] ?? 0;
-    int totalTags = _stats?['totalTags'] ?? 0;
-    double storageUsed = (_stats?['storageUsed'] ?? 0) / (1024 * 1024);
-    
+  Widget _buildStatsCardsWithData(int totalFiles, int totalTags, double storageUsed) {
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: 16),
       child: Row(
@@ -403,53 +417,84 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  void _showChangePasswordDialog() {
-    final currentPasswordController = TextEditingController();
-    final newPasswordController = TextEditingController();
-    final confirmPasswordController = TextEditingController();
+  // NUEVA FUNCIONALIDAD: Editar Perfil
+  void _showEditProfileDialog() {
+    final nameController = TextEditingController(text: _userData?['name'] ?? '');
+    final formKey = GlobalKey<FormState>();
 
     showDialog(
       context: context,
       builder: (context) {
         return AlertDialog(
-          title: Text('Cambiar Contraseña'),
-          content: SingleChildScrollView(
+          title: Row(
+            children: [
+              Icon(Icons.edit, color: Colors.blue[700]),
+              SizedBox(width: 10),
+              Text('Editar Perfil'),
+            ],
+          ),
+          content: Form(
+            key: formKey,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                TextField(
-                  controller: currentPasswordController,
-                  obscureText: true,
+                TextFormField(
+                  controller: nameController,
                   decoration: InputDecoration(
-                    labelText: 'Contraseña actual',
+                    labelText: 'Nombre completo',
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
                     ),
-                    prefixIcon: Icon(Icons.lock),
+                    prefixIcon: Icon(Icons.person),
                   ),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return 'Por favor ingresa tu nombre';
+                    }
+                    return null;
+                  },
                 ),
                 SizedBox(height: 12),
-                TextField(
-                  controller: newPasswordController,
-                  obscureText: true,
-                  decoration: InputDecoration(
-                    labelText: 'Nueva contraseña',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    prefixIcon: Icon(Icons.lock_outline),
+                Container(
+                  padding: EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey[100],
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.email, color: Colors.grey[600]),
+                      SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Correo electrónico',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey[600],
+                              ),
+                            ),
+                            Text(
+                              _authService.currentUser?.email ?? '',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                SizedBox(height: 12),
-                TextField(
-                  controller: confirmPasswordController,
-                  obscureText: true,
-                  decoration: InputDecoration(
-                    labelText: 'Confirmar contraseña',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    prefixIcon: Icon(Icons.lock_outline),
+                SizedBox(height: 8),
+                Text(
+                  'El correo no se puede cambiar',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[600],
                   ),
                 ),
               ],
@@ -462,36 +507,157 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
             ElevatedButton(
               onPressed: () async {
-                if (newPasswordController.text != confirmPasswordController.text) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Las contraseñas no coinciden'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                  return;
-                }
+                if (formKey.currentState!.validate()) {
+                  try {
+                    // Actualizar nombre en Firebase Auth
+                    await _authService.currentUser?.updateDisplayName(nameController.text.trim());
+                    
+                    // Actualizar nombre en Firestore
+                    await _authService.updateUserData({
+                      'name': nameController.text.trim(),
+                    });
 
-                try {
-                  await _authService.changePassword(
-                    currentPassword: currentPasswordController.text,
-                    newPassword: newPasswordController.text,
-                  );
-                  
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Contraseña actualizada'),
-                      backgroundColor: Colors.green,
+                    Navigator.pop(context);
+                    
+                    // Recargar datos
+                    await _loadUserData();
+                    
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Perfil actualizado correctamente'),
+                        backgroundColor: Colors.green,
+                      ),
+                    );
+                  } catch (e) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Error al actualizar perfil: $e'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blue[700],
+              ),
+              child: Text('Guardar', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showChangePasswordDialog() {
+    final currentPasswordController = TextEditingController();
+    final newPasswordController = TextEditingController();
+    final confirmPasswordController = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text('Cambiar Contraseña'),
+          content: SingleChildScrollView(
+            child: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextFormField(
+                    controller: currentPasswordController,
+                    obscureText: true,
+                    decoration: InputDecoration(
+                      labelText: 'Contraseña actual',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      prefixIcon: Icon(Icons.lock),
                     ),
-                  );
-                } catch (e) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Error: $e'),
-                      backgroundColor: Colors.red,
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Ingresa tu contraseña actual';
+                      }
+                      return null;
+                    },
+                  ),
+                  SizedBox(height: 12),
+                  TextFormField(
+                    controller: newPasswordController,
+                    obscureText: true,
+                    decoration: InputDecoration(
+                      labelText: 'Nueva contraseña',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      prefixIcon: Icon(Icons.lock_outline),
                     ),
-                  );
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Ingresa una nueva contraseña';
+                      }
+                      if (value.length < 6) {
+                        return 'Mínimo 6 caracteres';
+                      }
+                      return null;
+                    },
+                  ),
+                  SizedBox(height: 12),
+                  TextFormField(
+                    controller: confirmPasswordController,
+                    obscureText: true,
+                    decoration: InputDecoration(
+                      labelText: 'Confirmar contraseña',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      prefixIcon: Icon(Icons.lock_outline),
+                    ),
+                    validator: (value) {
+                      if (value == null || value.isEmpty) {
+                        return 'Confirma tu contraseña';
+                      }
+                      if (value != newPasswordController.text) {
+                        return 'Las contraseñas no coinciden';
+                      }
+                      return null;
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('Cancelar'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                if (formKey.currentState!.validate()) {
+                  try {
+                    await _authService.changePassword(
+                      currentPassword: currentPasswordController.text,
+                      newPassword: newPasswordController.text,
+                    );
+                    
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Contraseña actualizada correctamente'),
+                        backgroundColor: Colors.green,
+                      ),
+                    );
+                  } catch (e) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Error: $e'),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
                 }
               },
               style: ElevatedButton.styleFrom(
@@ -506,69 +672,86 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   void _showStorageDialog() {
-    double storageUsed = (_stats?['storageUsed'] ?? 0) / (1024 * 1024);
-    double storageLimit = (_stats?['storageLimit'] ?? 104857600) / (1024 * 1024);
-    double percentage = storageUsed / storageLimit;
-
     showDialog(
       context: context,
       builder: (context) {
-        return AlertDialog(
-          title: Row(
-            children: [
-              Icon(Icons.storage, color: Colors.blue[700]),
-              SizedBox(width: 10),
-              Text('Almacenamiento'),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Espacio usado',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 16,
-                ),
-              ),
-              SizedBox(height: 16),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        return StreamBuilder<List<dynamic>>(
+          stream: _firestoreService.getFiles(),
+          builder: (context, snapshot) {
+            // Calcular almacenamiento en tiempo real
+            double storageUsedMB = 0;
+            if (snapshot.hasData) {
+              for (var file in snapshot.data!) {
+                storageUsedMB += file.size;
+              }
+            }
+            
+            double storageLimit = (_stats?['storageLimit'] ?? 104857600) / (1024 * 1024);
+            double percentage = storageLimit > 0 ? storageUsedMB / storageLimit : 0;
+
+            return AlertDialog(
+              title: Row(
                 children: [
-                  Text('Archivos:'),
-                  Text('${storageUsed.toStringAsFixed(2)} MB', 
-                    style: TextStyle(fontWeight: FontWeight.w600)),
+                  Icon(Icons.storage, color: Colors.blue[700]),
+                  SizedBox(width: 10),
+                  Text('Almacenamiento'),
                 ],
               ),
-              SizedBox(height: 8),
-              LinearProgressIndicator(
-                value: percentage,
-                backgroundColor: Colors.grey[200],
-                color: Colors.blue[700],
-                minHeight: 8,
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Espacio usado',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                  SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text('Archivos:'),
+                      Text('${storageUsedMB.toStringAsFixed(2)} MB', 
+                        style: TextStyle(fontWeight: FontWeight.w600)),
+                    ],
+                  ),
+                  SizedBox(height: 8),
+                  LinearProgressIndicator(
+                    value: percentage,
+                    backgroundColor: Colors.grey[200],
+                    color: percentage > 0.9 ? Colors.red : Colors.blue[700],
+                    minHeight: 8,
+                  ),
+                  SizedBox(height: 16),
+                  Text(
+                    '${storageUsedMB.toStringAsFixed(2)} MB de ${storageLimit.toStringAsFixed(0)} MB utilizados',
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  ),
+                  SizedBox(height: 8),
+                  Text(
+                    'Espacio disponible: ${(storageLimit - storageUsedMB).toStringAsFixed(2)} MB',
+                    style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  ),
+                  if (snapshot.connectionState == ConnectionState.waiting)
+                    Padding(
+                      padding: EdgeInsets.only(top: 12),
+                      child: Center(child: CircularProgressIndicator()),
+                    ),
+                ],
               ),
-              SizedBox(height: 16),
-              Text(
-                '${storageUsed.toStringAsFixed(2)} MB de ${storageLimit.toStringAsFixed(0)} MB utilizados',
-                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-              ),
-              SizedBox(height: 8),
-              Text(
-                'Espacio disponible: ${(storageLimit - storageUsed).toStringAsFixed(2)} MB',
-                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-              ),
-            ],
-          ),
-          actions: [
-            ElevatedButton(
-              onPressed: () => Navigator.pop(context),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blue[700],
-              ),
-              child: Text('Cerrar', style: TextStyle(color: Colors.white)),
-            ),
-          ],
+              actions: [
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue[700],
+                  ),
+                  child: Text('Cerrar', style: TextStyle(color: Colors.white)),
+                ),
+              ],
+            );
+          },
         );
       },
     );
